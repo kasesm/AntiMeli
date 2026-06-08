@@ -1,15 +1,14 @@
-name: Hourly Config Collector
+name: Run Telegram Config Scraper
 
 on:
   schedule:
-    - cron: '0 * * * *' # اجرا دقیقاً سر هر ساعت (مثلاً 1:00، 2:00 و...)
-  workflow_dispatch: # اضافه کردن دکمه اجرای دستی در تب Actions گیت‌هاب
-
-permissions:
-  contents: write # دادن دسترسی به گیت‌هاب اکشن برای ثبت و آپدیت فایل کانفیگ‌ها
+    # اجرای خودکار هر ۶ ساعت یک‌بار (می‌توانی زمانش را تغییر دهی)
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    # فعال کردن دکمه اجرای دستی در تب Actions گیت‌هاب
 
 jobs:
-  run-scraper:
+  scrape:
     runs-on: ubuntu-latest
 
     steps:
@@ -20,30 +19,23 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          cache: 'pip' # کش کردن نیازمندی‌ها برای بالا رفتن سرعت اجرا در دفعات بعدی
 
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install telethon pycryptodome
 
       - name: Run Scraper Script
         env:
-          TG_API_ID: ${{ secrets.TG_API_ID }}
-          TG_API_HASH: ${{ secrets.TG_API_HASH }}
-          TG_SESSION_STRING: ${{ secrets.TG_SESSION_STRING }}
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
         run: python scraper.py
 
       - name: Commit and Push Changes
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # بررسی اینکه آیا فایل تغییر کرده یا کانفیگ جدیدی اضافه شده است
-          git add sub_link.txt
-          if git diff --quiet && git diff --staged --quiet; then
-            echo "هیچ کانفیگ جدیدی پیدا نشد. کامیت انجام نمی‌شود."
-          else
-            git commit -m "Update configs: $(date -u +'%Y-%m-%d %H:%M:%S') UTC"
-            git push
-          fi
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add configs.txt
+          # کامیت کردن تغییرات فقط در صورتی که فایل جدیدی اضافه شده باشد تا ارور ندهد
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update collected configs [Automated]" && git push)
