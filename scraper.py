@@ -55,10 +55,11 @@ NPV_KEY = b'NapsternetVBestV2rayClientForAnd'
 NPV_IV = b'0123456789abcdef' # IV استاندارد ۱۶ بایتی پیش‌فرض
 
 def decrypt_npv_data(encrypted_text):
-    """رمزگشایی محلی فایل نپسترنت همراه با پاکسازی پیشرفته کاراکترهای مزاحم"""
+    """رمزگشایی پیشرفته و چندلایه فایل‌های نپسترنت با فیلتر تبلیغات و بای‌پاس پدینگ"""
     try:
-        # ۱. بررسی اینکه آیا فایل ساختار JSON کپسوله شده دارد یا خیر
         encrypted_text = encrypted_text.strip()
+        
+        # ۱. بررسی ساختار احتمالی JSON کلاود کلاینت‌ها
         if encrypted_text.startswith('{') and encrypted_text.endswith('}'):
             try:
                 js = json.loads(encrypted_text)
@@ -69,33 +70,68 @@ def decrypt_npv_data(encrypted_text):
             except Exception:
                 pass
 
-        # ۲. 🛡️ بخش حیاتی: حذف تمام اینترها (\n, \r)، فاصله‌ها و کاراکترهای غیرمنطقی
-        # این خط باعث می‌شود فقط کاراکترهای معتبر Base64 باقی بمانند
-        encrypted_text = re.sub(r'[^A-Za-z0-9+/]', '', encrypted_text)
-        
-        # ۳. بازسازی استاندارد پادینگ (=) روی متن خالص شده
-        missing_padding = len(encrypted_text) % 4
+        # ۲. 🛡️ فیلتر تبلیغات: پیدا کردن طولانی‌ترین توکن متنی (حذف آیدی چنل‌ها و متن‌های اضافه)
+        tokens = encrypted_text.split()
+        best_token = ""
+        max_len = 0
+        for t in tokens:
+            cleaned = re.sub(r'[^A-Za-z0-9+/]', '', t)
+            if len(cleaned) > max_len:
+                max_len = len(cleaned)
+                best_token = cleaned
+
+        if max_len < 20: 
+            return []
+
+        # ۳. اصلاح پادینگ Base64 برای توکن اصلی
+        missing_padding = len(best_token) % 4
         if missing_padding:
-            encrypted_text += '=' * (4 - missing_padding)
+            best_token += '=' * (4 - missing_padding)
             
-        # ۴. تبدیل متن پاکسازی‌شده به بایت‌های خام
-        encrypted_bytes = base64.b64decode(encrypted_text)
-        
-        # ۵. بررسی طول بلاک برای AES-16
-        if len(encrypted_bytes) % 16 != 0:
-            print(f"Skipping: Cleaned ciphertext length ({len(encrypted_bytes)}) is still invalid.")
+        # ۴. تبدیل به بایت‌های خام
+        try:
+            encrypted_bytes = base64.b64decode(best_token)
+        except Exception as b64_e:
+            print(f"Base64 Decode Failed for token: {b64_e}")
             return []
         
-        # ۶. عملیات رمزگشایی نهایی
-        cipher = AES.new(NPV_KEY, AES.MODE_CBC, NPV_IV)
-        decrypted_bytes = unpad(cipher.decrypt(encrypted_bytes), AES.block_size)
-        decrypted_str = decrypted_bytes.decode('utf-8', errors='ignore')
-        
-        # ۷. استخراج لینک‌های مستقیم v2ray
-        found_links = re.findall(V2RAY_REGEX, decrypted_str, re.IGNORECASE)
-        return found_links
+        # ۵. لایه اول: تست اینکه آیا فایل فقط یک Base64 ساده از JSON یا لینک است؟
+        try:
+            plain_str = encrypted_bytes.decode('utf-8', errors='strict')
+            if '{' in plain_str or '://' in plain_str:
+                found_links = re.findall(V2RAY_REGEX, plain_str, re.IGNORECASE)
+                if found_links:
+                    return found_links
+        except Exception:
+            pass # دیتا متنی ساده نیست و قفل AES دارد
+
+        # ۶. لایه دوم: رمزگشایی با استاندارد AES-256-CBC
+        # اگر طول مضرب ۱۶ نباشد، برای اطمینان رگکس را روی دیتای خام بیس۶۴ شده تست میکند
+        if len(encrypted_bytes) % 16 != 0:
+            try:
+                raw_test = encrypted_bytes.decode('utf-8', errors='ignore')
+                return re.findall(V2RAY_REGEX, raw_test, re.IGNORECASE)
+            except Exception:
+                return []
+
+        # عملیات دکریپت با متد پیش‌فرض
+        try:
+            cipher = AES.new(NPV_KEY, AES.MODE_CBC, NPV_IV)
+            decrypted_bytes = unpad(cipher.decrypt(encrypted_bytes), AES.block_size)
+            decrypted_str = decrypted_bytes.decode('utf-8', errors='ignore')
+            return re.findall(V2RAY_REGEX, decrypted_str, re.IGNORECASE)
+        except Exception as aes_err:
+            # 💥 لایه نجات‌بخش: اگر خطای پدینگ داد، پدینگ را دور بزن و دیتای خام دکریپت شده را رگکس کن!
+            print(f"Standard unpad failed ({aes_err}). Trying brute-force extraction...")
+            try:
+                cipher_bypass = AES.new(NPV_KEY, AES.MODE_CBC, NPV_IV)
+                raw_decrypted = cipher_bypass.decrypt(encrypted_bytes).decode('utf-8', errors='ignore')
+                return re.findall(V2RAY_REGEX, raw_decrypted, re.IGNORECASE)
+            except Exception:
+                return []
+
     except Exception as e:
-        print(f"Local Decryption Failed: {e}")
+        print(f"Advanced Decryption Failed: {e}")
         return []
 
 async def main():
