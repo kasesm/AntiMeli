@@ -2,10 +2,10 @@ name: Run Telegram Config Scraper
 
 on:
   schedule:
-    # اجرای خودکار هر ۶ ساعت یک‌بار (می‌توانی زمانش را تغییر دهی)
-    - cron: '0 */6 * * *'
+    # اجرای خودکار رأس هر ساعت رند (دقیقه 0 هر ساعت)
+    - cron: '0 * * * *'
   workflow_dispatch:
-    # فعال کردن دکمه اجرای دستی در تب Actions گیت‌هاب
+    # فعال کردن دکمه اجرای دستی در تب Actions گیت‌هاب برای تست آنی
 
 jobs:
   scrape:
@@ -27,6 +27,7 @@ jobs:
 
       - name: Run Scraper Script
         env:
+          # متصل کردن سکرت‌های جدید شما به محیط اجرای پایتون
           TELEGRAM_API_ID: ${{ secrets.TG_API_ID }}
           TELEGRAM_API_HASH: ${{ secrets.TG_API_HASH }}
           TELEGRAM_SESSION: ${{ secrets.TG_SESSION_STRING }}
@@ -37,5 +38,5 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add configs.txt
-          # کامیت کردن تغییرات فقط در صورتی که فایل جدیدی اضافه شده باشد تا ارور ندهد
+          # کامیت کردن تغییرات فقط در صورتی که دیتای جدیدی اضافه شده باشد تا پایپ‌لاین ارور ندهد
           git diff --quiet && git diff --staged --quiet || (git commit -m "Update collected configs [Automated]" && git push)
