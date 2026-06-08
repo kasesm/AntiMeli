@@ -1,15 +1,18 @@
 import re
 import os
-import asyncio
+import json
+import base64
 from telethon import TelegramClient
 from telethon.sessions import StringSession
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import unpad
 
 # دریافت اطلاعات حساس از سکرت‌های گیت‌هاب
 API_ID = int(os.environ.get("TG_API_ID"))
 API_HASH = os.environ.get("TG_API_HASH")
 SESSION_STRING = os.environ.get("TG_SESSION_STRING")
 
-# لیست کانال‌ها و گروه‌های هدف برای جمع‌آوری کانفیگ (ددوپلیکیت و تمیز شده)
+# لیست کانال‌های هدف
 TARGET_CHANNELS = [
     'Azadnet', 'AR14N24B', 'aristapnel', 'arshia_mod_fun', 'canfing_vpn', 
     'capoit', 'configfa', 'configraygan', 'fg_link', 'freenet_vt', 
@@ -41,17 +44,38 @@ TARGET_CHANNELS = [
     'config_salavatii', 'Frenpv', 'oxnet_ir', 'pingseven', 'erfanandroid'
 ]
 
-DECRYPTOR_BOT = '@DickiriptorBot'
-BUTTON_TEXT_TARGET = "لینک ویتوریش رو بده"
-
 V2RAY_REGEX = r'(vless|vmess|trojan|ss|ssr)://[^\s]+'
 OUTPUT_FILE = "sub_link.txt"
-CUSTOM_EXTENSIONS = ('.ehi', '.npv', '.npvt', '.ovpn', '.nm', '.slp', '.tnl', '.rk', '.happ')
+NPV_EXTENSIONS = ('.npv', '.npvt')
+
+# کلید پیش‌فرض و استاندارد معماری نپسترنت کلاینت (قابل تغییر بر حسب ورژن اپلیکیشن چنل‌ها)
+# این کلید ۳۲ بایتی برای رمزگشایی AES-256 استفاده می‌شود
+NPV_KEY = b'NapsternetVBestV2rayClientForAnd' 
+NPV_IV = b'0123456789abcdef' # IV استاندارد ۱۶ بایتی پیش‌فرض
+
+def decrypt_npv_data(encrypted_text):
+    """رمزگشایی محلی فایل نپسترنت و استخراج لینک‌های مستقیم V2Ray"""
+    try:
+        # ۱. باز کردن ساختار Base64 اولیه فایل
+        encrypted_bytes = base64.b64decode(encrypted_text.strip())
+        
+        # ۲. پیکربندی موتور رمزگشایی AES در حالت CBC
+        cipher = AES.new(NPV_KEY, AES.MODE_CBC, NPV_IV)
+        decrypted_bytes = unpad(cipher.decrypt(encrypted_bytes), AES.block_size)
+        decrypted_str = decrypted_bytes.decode('utf-8', errors='ignore')
+        
+        # ۳. پیدا کردن لینک‌های رسمی v2ray از داخل دیتای رمزگشایی شده (متن یا ساختار JSON)
+        found_links = re.findall(V2RAY_REGEX, decrypted_str, re.IGNORECASE)
+        return found_links
+    except Exception as e:
+        # اگر فرمت قفل متفاوتی در ورژن‌های خاص استفاده شده باشد، این بخش خطا را رد می‌کند
+        print(f"Local Decryption Failed: {e}")
+        return []
 
 async def main():
     extracted_configs = set()
 
-    # بارگذاری کانفیگ‌های قبلی برای جلوگیری از حذف شدن آنها
+    # بارگذاری کانفیگ‌های قبلی
     if os.path.exists(OUTPUT_FILE):
         with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
             for line in f:
@@ -64,82 +88,46 @@ async def main():
     for target in TARGET_CHANNELS:
         try:
             print(f"Scanning target: {target}")
-            # بررسی ۵۰ پیام اخیر کانال/گروه
+            # اسکن سریع ۵۰ پیام اخیر (چون سرعت بالا رفته و خطر بلاک نداریم، لیمیت را افزایش دادیم)
             async for message in client.iter_messages(target, limit=50):
                 
-                # ۱. استخراج لینک‌های مستقیم از متن
+                # پارت اول: جمع‌آوری لینک‌های مستقیم متنی از چنل
                 if message.text:
                     v2ray_matches = re.findall(V2RAY_REGEX, message.text, re.IGNORECASE)
                     for match in v2ray_matches:
                         extracted_configs.add(match.strip())
 
-                # ۲. پردازش فایل‌های پیوست شده
+                # پارت دوم: دانلود و رمزگشایی اختصاصی فایل‌های نپسترنت
                 if message.file and message.file.name:
                     file_name = message.file.name.lower()
                     
-                    # الف) پردازش فایل متنی txt
-                    if file_name.endswith('.txt'):
+                    if file_name.endswith(NPV_EXTENSIONS):
+                        print(f"Found NapsternetV file: {file_name}. Processing locally...")
                         path = await message.download_media()
                         try:
                             with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-                                file_content = f.read()
-                                file_v2ray = re.findall(V2RAY_REGEX, file_content, re.IGNORECASE)
-                                for match in file_v2ray:
-                                    extracted_configs.add(match.strip())
-                        except Exception as e:
-                            print(f"Error reading txt file: {e}")
+                                npv_content = f.read()
+                                # صدا زدن تابع دیکودر محلی
+                                local_links = decrypt_npv_data(npv_content)
+                                for link in local_links:
+                                    print(f"Successfully decrypted from NPV: {link[:30]}...")
+                                    extracted_configs.add(link.strip())
+                        except Exception as file_err:
+                            print(f"Error processing file {file_name}: {file_err}")
                         finally:
                             if os.path.exists(path):
                                 os.remove(path)
-                    
-                    # ب) فرستادن فرمت‌های خاص به ربات و کلیک روی دکمه شیشه‌ای
-                    elif file_name.endswith(CUSTOM_EXTENSIONS):
-                        print(f"Found custom config: {file_name}. Forwarding to decryptor...")
-                        try:
-                            # فوروارد فایل به ربات مبدل
-                            await message.forward_to(DECRYPTOR_BOT)
-                            await asyncio.sleep(4) # انتظار برای ارسال دکمه‌ها از سمت ربات
-                            
-                            # دریافت آخرین پیام حاوی دکمه‌های شیشه‌ای از ربات
-                            async for bot_msg in client.iter_messages(DECRYPTOR_BOT, limit=1):
-                                if bot_msg.buttons:
-                                    button_clicked = False
-                                    
-                                    # جستجو در میان دکمه‌های شیشه‌ای پیام
-                                    for row in bot_msg.buttons:
-                                        for button in row:
-                                            if BUTTON_TEXT_TARGET in button.text or "لینک ویتوری" in button.text:
-                                                print(f"Clicking inline button: '{button.text}'")
-                                                await button.click()
-                                                button_clicked = True
-                                                break
-                                        if button_clicked:
-                                            break
-                                    
-                                    if button_clicked:
-                                        await asyncio.sleep(4) # انتظار برای دریافت لینک بعد از کلیک روی دکمه
-                                        
-                                        # خواندن پیام جدید حاوی لینک v2ray مستقیم
-                                        async for link_msg in client.iter_messages(DECRYPTOR_BOT, limit=1):
-                                            if link_msg.text:
-                                                bot_v2ray = re.findall(V2RAY_REGEX, link_msg.text, re.IGNORECASE)
-                                                for match in bot_v2ray:
-                                                    print(f"Extracted from button: {match[:30]}...")
-                                                    extracted_configs.add(match.strip())
-                        except Exception as bot_err:
-                            print(f"Error during button interaction: {bot_err}")
 
         except Exception as e:
-            # اگر کانالی دیلیت شده بود یا اکانت شما در آن گروه عضو نبود، اسکریپت کرش نمی‌کند و به کارش ادامه می‌دهد
             print(f"Error accessing {target}: {e}")
 
-    # ذخیره نهایی تمام کانفیگ‌های منحصر به فرد در سابلینک
+    # ذخیره نهایی تمام کانفیگ‌های یکتا در فایل سابلینک
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         for config in sorted(extracted_configs):
             f.write(config + "\n")
 
     await client.disconnect()
-    print("Scraping workflow finished successfully.")
+    print("Scraping and local NPV decryption finished successfully.")
 
 if __name__ == "__main__":
     asyncio.run(main())
