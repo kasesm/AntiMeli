@@ -55,42 +55,43 @@ NPV_KEY = b'NapsternetVBestV2rayClientForAnd'
 NPV_IV = b'0123456789abcdef' # IV استاندارد ۱۶ بایتی پیش‌فرض
 
 def decrypt_npv_data(encrypted_text):
-    """رمزگشایی محلی فایل نپسترنت همراه با پاکسازی هوشمند ساختار دیتا"""
+    """رمزگشایی محلی فایل نپسترنت همراه با پاکسازی پیشرفته کاراکترهای مزاحم"""
     try:
-        # ۱. حذف فاصله‌ها و خطوط خالی ابتدا و انتها
+        # ۱. بررسی اینکه آیا فایل ساختار JSON کپسوله شده دارد یا خیر
         encrypted_text = encrypted_text.strip()
-        
-        # ۲. بررسی ساختار JSON (پشتیبانی از نسخه‌های جدید نپسترنت)
         if encrypted_text.startswith('{') and encrypted_text.endswith('}'):
             try:
                 js = json.loads(encrypted_text)
                 if 'config' in js:
-                    encrypted_text = js['config'].strip()
+                    encrypted_text = js['config']
                 elif 'data' in js:
-                    encrypted_text = js['data'].strip()
+                    encrypted_text = js['data']
             except Exception:
-                pass # اگر جیسون معتبر نبود به عنوان متن عادی ادامه بده
+                pass
+
+        # ۲. 🛡️ بخش حیاتی: حذف تمام اینترها (\n, \r)، فاصله‌ها و کاراکترهای غیرمنطقی
+        # این خط باعث می‌شود فقط کاراکترهای معتبر Base64 باقی بمانند
+        encrypted_text = re.sub(r'[^A-Za-z0-9+/]', '', encrypted_text)
         
-        # ۳. اصلاح پادینگ استاندارد Base64 (تعداد کاراکترها باید مضرب ۴ باشد)
-        # این کار جلوی ارورهای طول بایت ناهمhandling را می‌گیرد
+        # ۳. بازسازی استاندارد پادینگ (=) روی متن خالص شده
         missing_padding = len(encrypted_text) % 4
         if missing_padding:
             encrypted_text += '=' * (4 - missing_padding)
             
-        # ۴. تبدیل متن Base64 به بایت‌های خام
+        # ۴. تبدیل متن پاکسازی‌شده به بایت‌های خام
         encrypted_bytes = base64.b64decode(encrypted_text)
         
-        # ۵. اعتبارسنجی نهایی طول بلوک AES (مضرب ۱۶ بودن)
+        # ۵. بررسی طول بلاک برای AES-16
         if len(encrypted_bytes) % 16 != 0:
-            print(f"Skipping: Ciphertext length ({len(encrypted_bytes)}) is invalid for AES-16.")
+            print(f"Skipping: Cleaned ciphertext length ({len(encrypted_bytes)}) is still invalid.")
             return []
         
-        # ۶. عملیات رمزگشایی با کلید اختصاصی
+        # ۶. عملیات رمزگشایی نهایی
         cipher = AES.new(NPV_KEY, AES.MODE_CBC, NPV_IV)
         decrypted_bytes = unpad(cipher.decrypt(encrypted_bytes), AES.block_size)
         decrypted_str = decrypted_bytes.decode('utf-8', errors='ignore')
         
-        # ۷. استخراج کانفیگ‌های مستقیم از دل دیتای باز شده
+        # ۷. استخراج لینک‌های مستقیم v2ray
         found_links = re.findall(V2RAY_REGEX, decrypted_str, re.IGNORECASE)
         return found_links
     except Exception as e:
