@@ -2,6 +2,7 @@ import re
 import os
 import json
 import base64
+import asyncio  # 👈 این خطِ جا افتاده را اضافه کن
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from Crypto.Cipher import AES
