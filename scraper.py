@@ -55,21 +55,45 @@ NPV_KEY = b'NapsternetVBestV2rayClientForAnd'
 NPV_IV = b'0123456789abcdef' # IV استاندارد ۱۶ بایتی پیش‌فرض
 
 def decrypt_npv_data(encrypted_text):
-    """رمزگشایی محلی فایل نپسترنت و استخراج لینک‌های مستقیم V2Ray"""
+    """رمزگشایی محلی فایل نپسترنت همراه با پاکسازی هوشمند ساختار دیتا"""
     try:
-        # ۱. باز کردن ساختار Base64 اولیه فایل
-        encrypted_bytes = base64.b64decode(encrypted_text.strip())
+        # ۱. حذف فاصله‌ها و خطوط خالی ابتدا و انتها
+        encrypted_text = encrypted_text.strip()
         
-        # ۲. پیکربندی موتور رمزگشایی AES در حالت CBC
+        # ۲. بررسی ساختار JSON (پشتیبانی از نسخه‌های جدید نپسترنت)
+        if encrypted_text.startswith('{') and encrypted_text.endswith('}'):
+            try:
+                js = json.loads(encrypted_text)
+                if 'config' in js:
+                    encrypted_text = js['config'].strip()
+                elif 'data' in js:
+                    encrypted_text = js['data'].strip()
+            except Exception:
+                pass # اگر جیسون معتبر نبود به عنوان متن عادی ادامه بده
+        
+        # ۳. اصلاح پادینگ استاندارد Base64 (تعداد کاراکترها باید مضرب ۴ باشد)
+        # این کار جلوی ارورهای طول بایت ناهمhandling را می‌گیرد
+        missing_padding = len(encrypted_text) % 4
+        if missing_padding:
+            encrypted_text += '=' * (4 - missing_padding)
+            
+        # ۴. تبدیل متن Base64 به بایت‌های خام
+        encrypted_bytes = base64.b64decode(encrypted_text)
+        
+        # ۵. اعتبارسنجی نهایی طول بلوک AES (مضرب ۱۶ بودن)
+        if len(encrypted_bytes) % 16 != 0:
+            print(f"Skipping: Ciphertext length ({len(encrypted_bytes)}) is invalid for AES-16.")
+            return []
+        
+        # ۶. عملیات رمزگشایی با کلید اختصاصی
         cipher = AES.new(NPV_KEY, AES.MODE_CBC, NPV_IV)
         decrypted_bytes = unpad(cipher.decrypt(encrypted_bytes), AES.block_size)
         decrypted_str = decrypted_bytes.decode('utf-8', errors='ignore')
         
-        # ۳. پیدا کردن لینک‌های رسمی v2ray از داخل دیتای رمزگشایی شده (متن یا ساختار JSON)
+        # ۷. استخراج کانفیگ‌های مستقیم از دل دیتای باز شده
         found_links = re.findall(V2RAY_REGEX, decrypted_str, re.IGNORECASE)
         return found_links
     except Exception as e:
-        # اگر فرمت قفل متفاوتی در ورژن‌های خاص استفاده شده باشد، این بخش خطا را رد می‌کند
         print(f"Local Decryption Failed: {e}")
         return []
 
