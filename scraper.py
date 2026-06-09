@@ -29,10 +29,10 @@ V2RAY_REGEX = r'(?:vless|vmess|trojan|ss|ssr)://[^\s"\'`<>]+'
 
 # همان لیست بزرگ کانال‌های شما
 CHANNELS_LIST = [
-    'Azadnet', 'AR14N24B', 'aristapnel', 'arshia_mod_fun', 'canfing_vpn', 
+    'Azadnet', 'AR14N24B', 'aristapnel', 'Acplus_channel', 'canfing_vpn', 
     'capoit', 'configfa', 'configraygan', 'fg_link', 'freenet_vt', 
     'hamedvpns', 'iphone02016vpn', 'irancpi_vpn', 'marambashi', 'merlinvpn', 
-    'myporoxy', 'netaccount', 'persianvpnhub', 'pewezavpn', 'proxydaemi', 
+    'myporoxy', 'netaccount', 'persianvpnhub', 'PewezaTech', 'proxydaemi', 
     'proxyskull', 'rahgozar94725_ip', 'sinavm', 'soskeynet', 'tikvpnir', 
     'v2freehub', 'wiki_tajrobe', 'xsfilternet', 'yebekhe', 'Cygag', 'DailyV2RY', 
     'v2ray_configs_pools', 'v2rayvpnchannel', 'Galax_vpn', 'v2makers', 'FREE_V2RAYS', 
