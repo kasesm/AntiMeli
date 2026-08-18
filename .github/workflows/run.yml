@@ -43,3 +43,8 @@ jobs:
           
           # بررسی اینکه آیا تغییری ایجاد شده است یا خیر
           git diff --quiet && git diff --staged --quiet || (git commit -m "Update collected configs and ID cache [Automated]" && git push)
+
+
+concurrency:
+  group: telethon-bot
+  cancel-in-progress: true
